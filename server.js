@@ -77,3 +77,16 @@ app.post('/chat', async (req, res) => {
 });
 
 app.listen(process.env.PORT || 3000, () => console.log('StudyChat server listening'));
+app.get('/test', async (_req, res) => {
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': KEY || '' },
+      body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'Say hello to a student in five words.' }] }] })
+    });
+    const data = await r.json();
+    res.status(r.status).json(data);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
