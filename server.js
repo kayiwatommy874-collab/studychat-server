@@ -2,8 +2,8 @@ const express = require('express');
 const app = express();
 app.use(express.json({ limit: '50kb' }));
 
-const KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL = process.env.MODEL || 'claude-sonnet-5-5';
+const KEY = process.env.GEMINI_API_KEY;
+const MODEL = process.env.MODEL || 'gemini-3.8-flash';
 const ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 
 app.use((req, res, next) => {
@@ -53,18 +53,23 @@ app.post('/chat', async (req, res) => {
   while (msgs.length && msgs[0].role !== 'user') msgs.shift();
   if (!msgs.length || msgs[msgs.length - 1].role !== 'user') return res.status(400).json({ error: 'Send at least one user message.' });
   try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: MODEL, max_tokens: 1000, system: systemPrompt(b), messages: msgs })
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': KEY },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt(b) }] },
+        contents: msgs.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+        generationConfig: { maxOutputTokens: 1000 }
+      })
     });
     const data = await r.json();
     if (!r.ok) {
-      console.error('Anthropic error', r.status, data);
-      return res.status(502).json({ error: 'The AI service had a problem. Please try again.' });
+      console.error('Gemini error', r.status, JSON.stringify(data));
+      return res.status(r.status === 429 ? 429 : 502).json({ error: r.status === 429 ? 'Too many questions right now. Please wait a moment.' : 'The AI service had a problem. Please try again.' });
     }
-    const text = (data.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
-    res.json({ text });
+    const parts = (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) || [];
+    const text = parts.map((p) => p.text || '').join('').trim();
+    res.json({ text: text || 'I could not produce an answer. Please try rephrasing your question.' });
   } catch (e) {
     console.error(e);
     res.status(502).json({ error: 'Could not reach the AI service.' });
